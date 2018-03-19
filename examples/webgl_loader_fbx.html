@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - FBX loader</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #000;
+				color: #fff;
+				margin: 0px;
+				overflow: hidden;
+			}
+			#info {
+				color: #fff;
+				position: absolute;
+				top: 10px;
+				width: 100%;
+				text-align: center;
+				z-index: 100;
+				display:block;
+			}
+			#info a {
+				color: #046;
+				font-weight: bold;
+			}
+		</style>
+	</head>
+
+	<body>
+		<div id="info">
+		</div>
+
+		<script src="../build/three.js"></script>
+		
+		<script src="js/shaders/WaterRefractionShader.js"></script>
+		<script src="js/objects/Refractor.js"></script>
+
+		<script src="js/libs/inflate.min.js"></script>
+		<script src="js/loaders/FBXLoader.js"></script>
+
+		<script src="js/controls/OrbitControls.js"></script>
+
+		<script src="js/Detector.js"></script>
+		<script src="js/libs/stats.min.js"></script>
+
+		<script src="js/shaders/BleachBypassShader.js"></script>
+		<script src="js/shaders/ColorCorrectionShader.js"></script>
+		<script src="js/shaders/CopyShader.js"></script>
+		<script src="js/shaders/FXAAShader.js"></script>
+
+		<script src="js/postprocessing/EffectComposer.js"></script>
+		<script src="js/postprocessing/RenderPass.js"></script>
+		<script src="js/postprocessing/ShaderPass.js"></script>
+		<script src="js/postprocessing/MaskPass.js"></script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var container, stats, controls;
+			var camera, scene, renderer, light;
+
+			var clock = new THREE.Clock();
+
+			var mixers = [];
+			
+			var composer, effectFXAA;
+			
+			var refractor;
+
+			init();
+			//animate();
+
+			function init() {
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+
+				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 2000 );
+				camera.position.set( 100, 200, 300 );
+
+				controls = new THREE.OrbitControls( camera );
+				controls.target.set( 0, 100, 0 );
+				controls.update();
+				
+				var r = "textures/cube/Park3Med/";
+
+				var urls = [
+					r + "px.jpg", r + "nx.jpg",
+					r + "py.jpg", r + "ny.jpg",
+					r + "pz.jpg", r + "nz.jpg"
+				];
+
+				var textureCube = new THREE.CubeTextureLoader().load( urls );
+				textureCube.mapping = THREE.CubeRefractionMapping;
+
+				scene = new THREE.Scene();
+				//scene.background = new THREE.Color( 0xa0a0a0 );
+				scene.background = textureCube;
+				scene.fog = new THREE.Fog( 0xa0a0a0, 200, 1000 );
+				
+				light = new THREE.HemisphereLight( 0xffffff, 0x444444 );
+				light.position.set( 0, 200, 0 );
+				scene.add( light );
+
+				light = new THREE.DirectionalLight( 0xffffff );
+				light.position.set( 0, 200, 100 );
+				light.castShadow = true;
+				light.shadow.camera.top = 300;
+				light.shadow.camera.bottom = -200;
+				light.shadow.camera.left = -200;
+				light.shadow.camera.right = 200;
+				scene.add( light );
+
+				// scene.add( new THREE.CameraHelper( light.shadow.camera ) );
+
+				// ground
+				var mesh = new THREE.Mesh( new THREE.PlaneGeometry( 2000, 2000 ), new THREE.MeshPhongMaterial( { color: 0x999999, depthWrite: false } ) );
+				mesh.rotation.x = - Math.PI / 2;
+				mesh.receiveShadow = true;
+				scene.add( mesh );
+
+				var grid = new THREE.GridHelper( 2000, 20, 0x000000, 0x000000 );
+				grid.material.opacity = 0.2;
+				grid.material.transparent = true;
+				scene.add( grid );
+
+				// mesh
+
+				var geometry = new THREE.TorusKnotBufferGeometry( 30, 10, 256, 32 );
+				var material = new THREE.MeshStandardMaterial( { color: 0x6083c2 } );
+
+				var mesh = new THREE.Mesh( geometry, material );
+				scene.add( mesh );
+				
+				var textureLoader = new THREE.TextureLoader();
+				
+				var refractorGeometry = new THREE.PlaneBufferGeometry( 200, 200 );
+				
+				refractor = new THREE.Refractor( refractorGeometry, {
+					color: 0x999999,
+					textureWidth: 1024,
+					textureHeight: 1024,
+					shader: THREE.WaterRefractionShader
+				} );
+				
+				refractor.position.set( 0, 100, 70 );
+				scene.add( refractor );
+				
+				var dudvMap = new THREE.TextureLoader().load( 'textures/waterdudv.jpg', function () {
+
+					animate();
+
+				} );
+
+				dudvMap.wrapS = dudvMap.wrapT = THREE.RepeatWrapping;
+				refractor.material.uniforms.tDudv.value = dudvMap;
+				
+				/*var materialHeart = new THREE.MeshPhongMaterial( {
+					color: 0xdddddd,
+					specular: 0x222222,
+					shininess: 35,
+					map: textureLoader.load( "/modelos/frozenHeart/heart_DIFFUSE.jpg" ),
+					normalMap: textureLoader.load( "/modelos/frozenHeart/heart_NORMAL.png" ),
+					normalScale: new THREE.Vector2( 0.8, 0.8 )
+				} );
+				
+				//var cubeMaterial1 = new THREE.MeshPhongMaterial( { color: 0xffffff, envMap: textureCube, refractionRatio: 0.98 } );
+
+				var materialIce = new THREE.MeshPhongMaterial( {
+					color: 0x96dbea,
+					specular: 0xffffff,
+					refractionRatio: 0.5,
+					//reflectivity: 0.9,
+					opacity: 0.4,
+					transparent: true,
+					envMap: textureCube,
+					normalMap: textureLoader.load( "/modelos/frozenHeart/ice_NORMAL.jpg" ),
+					normalScale: new THREE.Vector2( 0.8, 0.8 ),
+					shader: THREE.WaterRefractionShader
+				} );
+				console.log(materialIce);*/
+				var materialHeart = new THREE.MeshPhongMaterial({
+					color: 0xdddddd,
+					specular: 0x222222,
+					shininess: 35,
+					map: textureLoader.load( "/modelos/frozenHeart/heart_DIFFUSE.jpg" )
+				});
+				var materialIce = new THREE.MeshBasicMaterial( {
+					color: 0x96dbea,
+					//envMap: textureCube,
+					//opacity: 0.3,
+					refractionRatio: 0.98,
+					transparent: true
+				} );
+				//materialIce.envMap.mapping = THREE.CubeRefractionMapping;
+				
+				// model
+				var loader = new THREE.FBXLoader();
+				loader.load( '/modelos/frozenHeart/heartFull.fbx', function ( object ) {
+
+					console.log(object.children);
+					object.position.y = 100;
+					object.scale.x = 20;
+					object.scale.y = 20;
+					object.scale.z = 20;
+					
+					object.children[0].material = materialHeart;
+					object.children[1].material = materialIce;
+					
+					object.children[1].renderDepth = -1.1;
+					
+					scene.add( object );
+
+				} );
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.shadowMap.enabled = true;
+				renderer.setClearColor( 0x20252f );
+				container.appendChild( renderer.domElement );
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+				// stats
+				stats = new Stats();
+				container.appendChild( stats.dom );
+
+			}
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			//
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				refractor.material.uniforms.time.value += clock.getDelta();
+
+				renderer.render( scene, camera );
+
+				stats.update();
+
+			}
+
+		</script>
+
+	</body>
+</html>
